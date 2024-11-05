@@ -5,109 +5,184 @@ from endless_imports import *
 Extracting Duration
 
 Notes: 
-y is the audio time series, tf is an audio time series u ask? 
-    - an audio time series is a way of representing audio as a series of numbers over time, 
-    where each number represents the amplitude at a specific time step
+    y is the audio time series, what is an audio time series you ask?
+        - an audio time series is a way of representing audio as a series of numbers over time, 
+        where each number represents the amplitude at a specific time step
 
-sr is sampling rate aka samples per second
+    sr is sampling rate aka samples per second
 '''
 
-y, sr = librosa.load("_K.K. Bossa (Orchestra).wav", sr = 48000)
+
+y, sr = librosa.load(test_filename, sr = 48000)
 duration = librosa.get_duration(y = y, sr = sr)
 
 duration_min = int(duration / 60)
 duration_sec = int(duration % 60)
 duration_final = str(duration_min) + ":" + str(duration_sec)
+
 #--------------------------------------------------------------------------------------------------
 '''
 Extracting Sampling Rate
 
 Notes:
- - sampling rate is the number of samples per second that are taken from a waveform to create 
- a discete digital signal
+    - sampling rate is the number of samples per second that are taken from a waveform to create 
+    a discete digital signal
 '''
 
 sampling_rate = sr
 
 #--------------------------------------------------------------------------------------------------
 '''
-Extracting Tempo
+Extracting BPM
 
 Notes:
-Tempo via beats per minute (BPM)
+    Tempo via beats per minute (BPM)
 '''
 
-tempo, beats = librosa.beat.beat_track(y = y, sr = sr)
-tempo_int = int(tempo[0].round())
-tempo_string = "BPM Estimation: " + str(tempo_int)
+bpm, beats = librosa.beat.beat_track(y = y, sr = sr)
+
+bpm_int = round(bpm[0] if type(bpm) == np.ndarray else bpm)
+bpm_float = bpm[0] if type(bpm) == np.ndarray else bpm
 
 #--------------------------------------------------------------------------------------------------
 '''
 Extracting Key and Scale
 
 Notes:
-Being able to extract which of the following keys and scales the track is
+    - Key Algorithm Workflow: Loading Audio File - Loading audio file and sampling rate
+                              ↓
+                              FrameCutter - Cuts audio signal into framed for processing
+                              ↓
+                              Windowing -  Applying "window function" to each frame to reduce spectral leakage
+                              ↓
+                              Spectrum -  Converts the time-domain signal (frames) into the frequency domain (spectrum)
+                              ↓
+                              Spectral Peaks - Identifies peaks in the spectrum
+                              ↓ 
+                              HPCP -  Computes Harmonic Pitch Class Profile (harmonic content via pitch classes) from spectral peaks
+                              ↓
+                              Key -  Estimates key and scale from HPCP (Key Strength is the confidence of the key estimation)
+                              ↓
+                              Pool -  Stores data
+                              ↓
+                              Connecting Streaming Network -  Connects the algorithms to form a processing pipeline
+                              ↓
+                              Running Streaming Network -  Runs streaming network to process audio file
+                              ↓
+                              Output - Outputting Key/Scale/Key Strength
+
+    - Key Strength: Confidence of the key estimation 
+        - 12 keys and 2 scales -> 24 possible combinations
+        - decimal probability between 0 and 1 assigned to each combination based on chance the key/scale is that combination, all together adding to 1
 
 '''
+def key():
+    # loading audio file
+    loader = ess.MonoLoader(filename = test_filename, sampleRate = sr)
 
-loader = ess.MonoLoader(filename="_K.K. Bossa (Orchestra).wav")
-framecutter = ess.FrameCutter(frameSize=4096, 
-                              hopSize=2048, 
-                              silentFrames='drop')
-windowing = ess.Windowing(type='hamming')
-spectrum = ess.Spectrum()
-spectralpeaks = ess.SpectralPeaks(orderBy='magnitude',
-                                  magnitudeThreshold=0.00001,
-                                  maxPeaks=60,
-                                  sampleRate=44100)
+    # framecutter
+    framecutter = ess.FrameCutter(frameSize = 4096, 
+                                  hopSize = 2048, 
+                                  silentFrames = "noise")
 
-# harmonic pitch class profile (HPCP)
-hpcp = ess.HPCP()
-hpcp_key = ess.HPCP(size=36,
-                    sampleRate=44100,
-                    referenceFrequency=440,
-                    bandPreset=False,
-                    weightType='cosine',
-                    nonLinear=False,
-                    windowSize=12)
+    # windowing
+    windowing = ess.Windowing(type = "hann")
 
-# key
-key = ess.Key(profileType='edma',
-              numHarmonics=4,
-              pcpSize=36,
-              slope=0.6,
-              usePolyphony=True,
-              useThreeChords=True)
+    # spectrum
+    spectrum = ess.Spectrum(size = 2048)
 
-# pooling data
-pool = essentia.Pool()
+    # spectral peaks
+    spectralpeaks = ess.SpectralPeaks(orderBy = "magnitude", 
+                                      magnitudeThreshold = 0.00001, 
+                                      maxPeaks = 60, 
+                                      sampleRate = sr)
 
-# connecting algorithms (data pipeline)
-loader.audio >> framecutter.signal
-framecutter.frame >> windowing.frame >> spectrum.frame
-spectrum.spectrum >> spectralpeaks.spectrum
-spectralpeaks.magnitudes >> hpcp.magnitudes
-spectralpeaks.frequencies >> hpcp.frequencies
-spectralpeaks.magnitudes >> hpcp_key.magnitudes
-spectralpeaks.frequencies >> hpcp_key.frequencies
-hpcp_key.hpcp >> key.pcp
-hpcp.hpcp >> (pool, 'tonal.hpcp')
-key.key >> (pool, 'tonal.key_key')
-key.scale >> (pool, 'tonal.key_scale')
-key.strength >> (pool, 'tonal.key_strength')
+    # hpcp
+    hpcp = ess.HPCP(size = 36, 
+                    sampleRate = sr, 
+                    referenceFrequency = 440, 
+                    bandPreset = False, 
+                    weightType = "cosine")
 
-essentia.run(loader)
+    # Key algorithm
+    key = ess.Key(averageDetuningCorrection = True, 
+                  profileType = "temperley", 
+                  numHarmonics = 4, 
+                  pcpSize = 36, 
+                  pcpThreshold = 0.2, 
+                  slope = 0.6, 
+                  usePolyphony = True, 
+                  useThreeChords = True)
 
-keyScaleStrength = "Estimated key and scale: " + str(pool['tonal.key_key']) + " " + str(pool['tonal.key_scale']) + "\nKey Strength: " + str(pool['tonal.key_strength'])
+    # pooling data
+    pool = essentia.Pool()
 
-print(keyScaleStrength)
+    # connecting algorithms to create streaming network
+    loader.audio >> framecutter.signal
+    framecutter.frame >> windowing.frame >> spectrum.frame
+    spectrum.spectrum >> spectralpeaks.spectrum
+    spectralpeaks.magnitudes >> hpcp.magnitudes
+    spectralpeaks.frequencies >> hpcp.frequencies
+    hpcp.hpcp >> key.pcp
+    key.key >> (pool, "tonal.key_key")
+    key.scale >> (pool, "tonal.key_scale")
+    key.strength >> (pool, "tonal.key_strength")
+
+    # running streaming network
+    essentia.run(loader)
+
+    keyScaleStrength = "Estimated key and scale: " + str(pool["tonal.key_key"]) + " " + str(pool["tonal.key_scale"]) + "\nKey Strength: " + str(pool["tonal.key_strength"])
+
+    print("Key Algorithm - ")
+    print(keyScaleStrength)
+
+def key_extractor():
+    # loading audio file
+    loader = ess.MonoLoader(filename = test_filename, sampleRate = sr)
+
+    # KeyExtractor algorithm
+    key_extract = ess.KeyExtractor(averageDetuningCorrection = True, 
+                                    frameSize = 4096, 
+                                    hopSize = 2048,
+                                    hpcpSize = 36, 
+                                    maxFrequency = 2000, 
+                                    maximumSpectralPeaks = 100,
+                                    minFrequency = 25, 
+                                    pcpThreshold = 0.2, 
+                                    profileType = "temperley",
+                                    sampleRate = sr, 
+                                    spectralPeaksThreshold = 0.00005, 
+                                    tuningFrequency = 440,
+                                    weightType = "cosine", 
+                                    windowType = "hannnsgcq")
+
+    # pooling data
+    pool = essentia.Pool()
+
+    # connecting algorithms to create streaming network
+    loader.audio >> key_extract.audio
+    key_extract.key >> (pool, "tonal.key_key")
+    key_extract.scale >> (pool, "tonal.key_scale")
+    key_extract.strength >> (pool, "tonal.key_strength")
+
+    # running streaming network
+    essentia.run(loader)
+
+    keyScaleStrength = "Estimated key and scale: " + str(pool["tonal.key_key"]) + " " + str(pool["tonal.key_scale"]) + "\nKey Strength: " + str(pool["tonal.key_strength"])
+
+    print("Key Extractor Algorithm - ")
+    print(keyScaleStrength)
+
+# uncomment below lines to extract key and scale via Key and KeyExtractor algorithms
+#key()
+#key_extractor()
 
 #--------------------------------------------------------------------------------------------------
 '''
 Adjusting Tempo and Pitch
 
 Notes:
-PCM_24 refers to output file bitrate (24 bits)
+    - PCM_24 refers to output file bitrate (24 bits)
 '''
 
 user_file = y
@@ -205,4 +280,5 @@ def tempo_pitch_adjust():
 
     tp_gui.mainloop()
 
+# uncomment below line to adjust tempo and pitch
 #tempo_pitch_adjust()
