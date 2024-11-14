@@ -5,7 +5,7 @@ from endless_imports import *
 Extracting Duration
 
 Notes: 
-    y is the audio time series, what is an audio time series you ask?
+    y is the audio time series
         - an audio time series is a way of representing audio as a series of numbers over time, 
         where each number represents the amplitude at a specific time step
 
@@ -51,11 +51,11 @@ Extracting Key and Scale
 Notes:
     - Key Algorithm Workflow: Loading Audio File - Loading audio file and sampling rate
                               ↓
-                              FrameCutter - Cuts audio signal into framed for processing
+                              FrameCutter - Cuts audio signal into frames for processing
                               ↓
                               Windowing -  Applying "window function" to each frame to reduce spectral leakage
                               ↓
-                              Spectrum -  Converts the time-domain signal (frames) into the frequency domain (spectrum)
+                              Spectrum -  Converts the time-domain signal (frames) into the frequency domain (visual spectrum)
                               ↓
                               Spectral Peaks - Identifies peaks in the spectrum
                               ↓ 
